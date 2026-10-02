@@ -1,7 +1,6 @@
 package com.vtuber.app
 
 import android.content.Context
-import org.jsoup.Jsoup
 
 data class VtuberConfig(
     val scale: Float = 1f,
@@ -19,30 +18,53 @@ data class VtuberConfig(
 )
 
 object ConfigParser {
+
+    private val CONFIG_TAG = Regex(
+        "<vtuber-config\\b([^>]*?)/?>",
+        RegexOption.IGNORE_CASE
+    )
+    private val IMAGE_TAG = Regex(
+        "<image\\b([^>]*?)/?>",
+        RegexOption.IGNORE_CASE
+    )
+    private val ATTR = Regex(
+        "([A-Za-z_][\\w-]*)\\s*=\\s*\"([^\"]*)\""
+    )
+
     fun load(context: Context): VtuberConfig {
         val html = context.assets.open("config.html")
             .bufferedReader().use { it.readText() }
-        val doc = Jsoup.parse(html, "UTF-8", "")
-        val cfg = doc.selectFirst("vtuber-config")
-        val imgs = doc.select("vtuber-images > image")
 
-        fun getImage(state: String, fallback: String): String =
-            imgs.firstOrNull { it.attr("state") == state }
-                ?.attr("src")?.takeIf { it.isNotBlank() } ?: fallback
+        val cfgAttrs: Map<String, String> = CONFIG_TAG.find(html)
+            ?.groupValues?.get(1)
+            ?.let { parseAttrs(it) }
+            ?: emptyMap()
+
+        val imageAttrs: List<Map<String, String>> = IMAGE_TAG.findAll(html)
+            .map { parseAttrs(it.groupValues[1]) }
+            .toList()
+
+        fun getImage(state: String, fallback: String): String {
+            val src = imageAttrs.firstOrNull { it["state"] == state }?.get("src")
+            return if (!src.isNullOrBlank()) src else fallback
+        }
 
         return VtuberConfig(
-            scale = cfg?.attr("scale")?.toFloatOrNull() ?: 1f,
-            cropTop = cfg?.attr("crop-top")?.toFloatOrNull() ?: 0.5f,
-            idleInterval = cfg?.attr("idle-interval")?.toLongOrNull() ?: 400L,
-            volumeThreshold = cfg?.attr("volume-threshold")?.toDoubleOrNull() ?: 1500.0,
-            talkFrames = cfg?.attr("talk-frames")?.toIntOrNull() ?: 3,
-            silenceFrames = cfg?.attr("silence-frames")?.toIntOrNull() ?: 8,
-            anchor = cfg?.attr("anchor")?.takeIf { it.isNotBlank() } ?: "bottom-center",
-            positionX = cfg?.attr("position-x")?.toFloatOrNull() ?: 0.5f,
-            positionY = cfg?.attr("position-y")?.toFloatOrNull() ?: 1.0f,
+            scale = cfgAttrs["scale"]?.toFloatOrNull() ?: 1f,
+            cropTop = cfgAttrs["crop-top"]?.toFloatOrNull() ?: 0.5f,
+            idleInterval = cfgAttrs["idle-interval"]?.toLongOrNull() ?: 400L,
+            volumeThreshold = cfgAttrs["volume-threshold"]?.toDoubleOrNull() ?: 1500.0,
+            talkFrames = cfgAttrs["talk-frames"]?.toIntOrNull() ?: 3,
+            silenceFrames = cfgAttrs["silence-frames"]?.toIntOrNull() ?: 8,
+            anchor = cfgAttrs["anchor"]?.takeIf { it.isNotBlank() } ?: "bottom-center",
+            positionX = cfgAttrs["position-x"]?.toFloatOrNull() ?: 0.5f,
+            positionY = cfgAttrs["position-y"]?.toFloatOrNull() ?: 1.0f,
             idle1Path = getImage("idle1", "images/idle1.png"),
             idle2Path = getImage("idle2", "images/idle2.png"),
             talkingPath = getImage("talking", "images/talking.png"),
         )
     }
+
+    private fun parseAttrs(raw: String): Map<String, String> =
+        ATTR.findAll(raw).associate { it.groupValues[1] to it.groupValues[2] }
 }
