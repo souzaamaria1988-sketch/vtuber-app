@@ -1,3 +1,4 @@
+
 package com.vtuber.app
 
 import android.Manifest
@@ -14,14 +15,26 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.animateFloatAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -52,9 +65,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -259,80 +272,89 @@ fun StudioScreen(versionText: String, onStart: () -> Unit) {
             Spacer(Modifier.height(14.dp))
 
             // ==================== PREVIEW AO VIVO ====================
+            // CORRECAO: o gesto de arraste agora fica numa Box INTERNA (dentro
+            // do escopo do BoxWithConstraints, onde "constraints" existe).
+            // Antes estava no modifier externo � fora do escopo.
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(300.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(Color(0xFF100E14))
-                    .pointerInput(Unit) {
-                        detectDragGestures(
-                            onDrag = { change, drag ->
-                                change.consume()
-                                val w = constraints.maxWidth.toFloat()
-                                val h = constraints.maxHeight.toFloat()
-                                settings = settings.copy(
-                                    xRatio = (settings.xRatio + drag.x / w).coerceIn(0f, 1f),
-                                    yRatio = (settings.yRatio + drag.y / h).coerceIn(0f, 1f),
-                                )
-                            },
-                            onDragEnd = { save() }
-                        )
-                    }
             ) {
                 val cw = constraints.maxWidth.toFloat()
                 val ch = constraints.maxHeight.toFloat()
-                val spriteW = cw * settings.wRatio
-                val spriteH = spriteW / aspect
-                val glowPad = with(density) { 8.dp.toPx() }
-                val ox = settings.xRatio * cw - spriteW / 2f
-                val oy = settings.yRatio * ch - spriteH / 2f + sinkPx
 
-                if (settings.glowWhenTalking) {
-                    Box(
-                        Modifier
-                            .offset { IntOffset((ox - glowPad).roundToInt(), (oy - glowPad).roundToInt()) }
-                            .size(
-                                with(density) { (spriteW + 2 * glowPad).toDp() },
-                                with(density) { (spriteH + 2 * glowPad).toDp() }
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .pointerInput(cw, ch) {
+                            detectDragGestures(
+                                onDrag = { change, drag ->
+                                    change.consume()
+                                    settings = settings.copy(
+                                        xRatio = (settings.xRatio + drag.x / cw).coerceIn(0f, 1f),
+                                        yRatio = (settings.yRatio + drag.y / ch).coerceIn(0f, 1f),
+                                    )
+                                },
+                                onDragEnd = { save() }
                             )
-                            .border(3.dp, Color.White.copy(alpha = glowA), RoundedCornerShape(18.dp))
-                            .background(Color.White.copy(alpha = glowA * 0.12f), RoundedCornerShape(18.dp))
-                    )
-                }
-                if (currentBmp != null) {
-                    Image(
-                        bitmap = currentBmp.asImageBitmap(),
-                        contentDescription = null,
-                        modifier = Modifier
-                            .offset { IntOffset(ox.roundToInt(), oy.roundToInt()) }
-                            .size(
-                                with(density) { spriteW.toDp() },
-                                with(density) { spriteH.toDp() }
-                            ),
-                        contentScale = ContentScale.Fit,
-                        alpha = alpha,
-                        colorFilter = ColorFilter.colorMatrix(
-                            ColorMatrix().apply { setScale(bright, bright, bright, 1f) }
+                        }
+                ) {
+                    val spriteW = cw * settings.wRatio
+                    val spriteH = spriteW / aspect
+                    val glowPad = with(density) { 8.dp.toPx() }
+                    val ox = settings.xRatio * cw - spriteW / 2f
+                    val oy = settings.yRatio * ch - spriteH / 2f + sinkPx
+
+                    if (settings.glowWhenTalking) {
+                        Box(
+                            Modifier
+                                .offset { IntOffset((ox - glowPad).roundToInt(), (oy - glowPad).roundToInt()) }
+                                .size(
+                                    with(density) { (spriteW + 2 * glowPad).toDp() },
+                                    with(density) { (spriteH + 2 * glowPad).toDp() }
+                                )
+                                .border(3.dp, Color.White.copy(alpha = glowA), RoundedCornerShape(18.dp))
+                                .background(Color.White.copy(alpha = glowA * 0.12f), RoundedCornerShape(18.dp))
                         )
-                    )
-                } else {
-                    Text(
-                        "Importe imagens (ou use as 3 padrão)\npara começar",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.align(Alignment.Center)
-                    )
-                }
-                if (previewOn) {
-                    Box(
-                        Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(10.dp)
-                            .size(12.dp)
-                            .clip(CircleShape)
-                            .background(if (talking) Color(0xFF7DDB8A) else Color(0xFF57525E))
-                    )
+                    }
+                    if (currentBmp != null) {
+                        Image(
+                            bitmap = currentBmp.asImageBitmap(),
+                            contentDescription = null,
+                            modifier = Modifier
+                                .offset { IntOffset(ox.roundToInt(), oy.roundToInt()) }
+                                .size(
+                                    with(density) { spriteW.toDp() },
+                                    with(density) { spriteH.toDp() }
+                                ),
+                            contentScale = ContentScale.Fit,
+                            alpha = alpha,
+                            // CORRECAO: ColorMatrix do Compose nao tem setScale.
+                            // Escurecimento = multiplicar RGB por um cinza (Multiply).
+                            colorFilter = if (bright < 0.99f) {
+                                ColorFilter.tint(Color(bright, bright, bright), BlendMode.Multiply)
+                            } else null
+                        )
+                    } else {
+                        Text(
+                            "Importe imagens (ou use as 3 padro)\npara comear",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
+                    if (previewOn) {
+                        Box(
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(10.dp)
+                                .size(12.dp)
+                                .clip(CircleShape)
+                                .background(if (talking) Color(0xFF7DDB8A) else Color(0xFF57525E))
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(6.dp))
@@ -340,9 +362,9 @@ fun StudioScreen(versionText: String, onStart: () -> Unit) {
                 fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
             // ==================== FRAMES ====================
-            SectionTitle("Frames — idle: ${idleList.size} · talking: ${talkList.size}")
+            SectionTitle("Frames � idle: ${idleList.size} � talking: ${talkList.size}")
             Text(
-                "Nome do arquivo com \"talk\" → lista Falando; número no fim = ordem " +
+                "Nome do arquivo com \"talk\"  lista Falando; nmero no fim = ordem " +
                 "(ex.: idle3.png, talking2.png). Toque numa thumb para reordenar/trocar/remover.",
                 fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -370,7 +392,7 @@ fun StudioScreen(versionText: String, onStart: () -> Unit) {
             }
 
             // ==================== POSICAO ====================
-            SectionTitle("Posição e tamanho")
+            SectionTitle("Posio e tamanho")
             SettingSlider("Tamanho", settings.wRatio, 0.15f..0.95f,
                 "${(settings.wRatio * 100).toInt()}%",
                 { settings = settings.copy(wRatio = it) }, { save() })
@@ -385,14 +407,14 @@ fun StudioScreen(versionText: String, onStart: () -> Unit) {
             }
 
             // ==================== ESTILO DISCORD ====================
-            SectionTitle("Estilo Discord (silêncio ↔ fala)")
-            SettingSlider("Transparência no silêncio", settings.idleAlpha, 0.1f..1f,
+            SectionTitle("Estilo Discord (silncio  fala)")
+            SettingSlider("Transparncia no silncio", settings.idleAlpha, 0.1f..1f,
                 "${(settings.idleAlpha * 100).toInt()}%",
                 { settings = settings.copy(idleAlpha = it) }, { save() })
-            SettingSlider("Escurecer no silêncio", settings.idleDim, 0f..0.8f,
+            SettingSlider("Escurecer no silncio", settings.idleDim, 0f..0.8f,
                 "${(settings.idleDim * 100).toInt()}%",
                 { settings = settings.copy(idleDim = it) }, { save() })
-            SettingSlider("Descer no silêncio", settings.idleOffsetDp, 0f..40f,
+            SettingSlider("Descer no silncio", settings.idleOffsetDp, 0f..40f,
                 "${settings.idleOffsetDp.toInt()} dp",
                 { settings = settings.copy(idleOffsetDp = it) }, { save() })
             Row(
@@ -412,14 +434,14 @@ fun StudioScreen(versionText: String, onStart: () -> Unit) {
             }
 
             // ==================== ANIMACAO E MIC ====================
-            SectionTitle("Animação e microfone")
+            SectionTitle("Animao e microfone")
             SettingSlider("Velocidade idle", settings.idleIntervalMs / 1000f, 0.08f..1.2f,
                 "${settings.idleIntervalMs} ms",
                 { settings = settings.copy(idleIntervalMs = (it * 1000).toLong()) }, { save() })
             SettingSlider("Velocidade falando", settings.talkingIntervalMs / 1000f, 0.06f..0.4f,
                 "${settings.talkingIntervalMs} ms",
                 { settings = settings.copy(talkingIntervalMs = (it * 1000).toLong()) }, { save() })
-            SettingSlider("Sensibilidade (menor = mais fácil)", settings.threshold.toFloat(),
+            SettingSlider("Sensibilidade (menor = mais fcil)", settings.threshold.toFloat(),
                 80f..1500f, "${settings.threshold.toInt()}",
                 { settings = settings.copy(threshold = it.toDouble()) }, { save() })
             Button(
@@ -431,9 +453,9 @@ fun StudioScreen(versionText: String, onStart: () -> Unit) {
                         if (rms != null) {
                             val t = (rms * 1.6).coerceIn(120.0, 1500.0)
                             settings = settings.copy(threshold = t); save()
-                            calibMsg = "Ruído ambiente: ${rms.toInt()} → sensibilidade ${t.toInt()}"
+                            calibMsg = "Rudo ambiente: ${rms.toInt()}  sensibilidade ${t.toInt()}"
                         } else {
-                            calibMsg = "Não consegui medir (microfone ocupado?)"
+                            calibMsg = "No consegui medir (microfone ocupado?)"
                         }
                         calibrating = false
                     }
@@ -441,7 +463,7 @@ fun StudioScreen(versionText: String, onStart: () -> Unit) {
                 enabled = !calibrating,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(if (calibrating) "Calibrando… fique quietinho" else "🎯 Calibrar microfone")
+                Text(if (calibrating) "Calibrando� fique quietinho" else " Calibrar microfone")
             }
             if (calibMsg.isNotEmpty()) {
                 Text(calibMsg, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary,
@@ -466,14 +488,14 @@ fun StudioScreen(versionText: String, onStart: () -> Unit) {
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(if (previewOn) "⏹ Parar preview ao vivo" else "▶ Preview ao vivo (microfone)")
+                Text(if (previewOn) " Parar preview ao vivo" else " Preview ao vivo (microfone)")
             }
             Spacer(Modifier.height(10.dp))
             Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
                 Text("Ativar overlay")
             }
             Spacer(Modifier.height(6.dp))
-            Text("Tocar \"Ativar overlay\" de novo reinicia o overlay com as mudanças.",
+            Text("Tocar \"Ativar overlay\" de novo reinicia o overlay com as mudanas.",
                 fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center)
             Spacer(Modifier.height(30.dp))
@@ -492,10 +514,10 @@ fun StudioScreen(versionText: String, onStart: () -> Unit) {
                 Column {
                     TextButton(onClick = {
                         frames = moveFrame(frames, f.id, -1); save()
-                    }) { Text("◀ Mover para trás") }
+                    }) { Text(" Mover para trs") }
                     TextButton(onClick = {
                         frames = moveFrame(frames, f.id, +1); save()
-                    }) { Text("Mover para frente ▶") }
+                    }) { Text("Mover para frente ") }
                     TextButton(onClick = {
                         frames = frames.map {
                             if (it.id == f.id)
@@ -568,7 +590,7 @@ fun FrameThumb(bmp: Bitmap?, label: String, onClick: () -> Unit) {
                     contentScale = ContentScale.Fit
                 )
             } else {
-                Text("…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("�", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Text(
