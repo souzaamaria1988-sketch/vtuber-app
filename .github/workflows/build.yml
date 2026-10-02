@@ -20,12 +20,6 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # A action android-actions/setup-android foi REMOVIDA de proposito:
-      # ela tenta instalar o pacote "tools", que nao existe mais no repositorio
-      # do Google ("Failed to find package 'tools'") — inclusive via default,
-      # mesmo sem o input "packages". O runner do GitHub ja vem com o Android
-      # SDK em $ANDROID_HOME; so aceitamos as licencas e garantimos os
-      # componentes com o sdkmanager do proprio runner.
       - name: Accept licenses & ensure SDK components (android-35)
         run: |
           SDKM="${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager"

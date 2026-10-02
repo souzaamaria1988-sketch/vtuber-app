@@ -1,35 +1,26 @@
-# VTuber App
+# VTuber Studio
 
-App Android nativo (Kotlin) com overlay VTuber: personagem flutuante sobre outros
-apps que alterna idle1/idle2 quando voce esta calado e talking quando voce fala.
+App Android (Kotlin) com overlay VTuber + editor de sprites.
 
-**Versao atual: v1.1 (versionCode 2)** — a tela inicial mostra o selo `v1.1 - build 2`.
-Se o seu app instalado NAO mostra isso, voce esta com uma build antiga.
+**Versao atual: v2.0 (versionCode 4)** — tela inicial mostra `v2.0 - build 4`.
 
-## Como gerar o APK
+## O que tem
 
-- Rode o `vtuber-bootstrap.html` no navegador: informe um token GitHub (PAT classico
-  com escopos **repo** + **workflow**), selecione as 3 imagens e clique no botao.
-  Ele cria este repositorio, envia tudo em 1 commit e dispara o Actions.
-- Ou altere/commite arquivos direto no GitHub: o workflow compila a cada push em main.
+- Importar quantos sprites quiser direto da galeria (dentro do app).
+- Listas separadas: IDLE (calado) e TALKING (falando); nome do arquivo com
+  "talk" vai pra lista Falando; numero no fim = ordem na animacao.
+- Preview ao vivo com microfone (veja o personagem reagir antes de ativar).
+- Estilo Discord: calado = desce um pouco + transparente + escurecido;
+  falando = sobe, imagem normal + brilho branco (tudo ajustavel).
+- Calibracao automatica do microfone (mede o ruido ambiente).
+- Microfone em modo compartilhado: nao quebra gravacao de tela nem chamadas.
+- Overlay: long-press edita (arrastar move, bolinhas redimensionam).
 
-## Como instalar
+## Instalar
 
-1. Abra **Actions** e clique na run mais recente.
-2. Baixe o artifact `vtuber-apk-build-<numero>` (ex.: vtuber-apk-build-42).
-3. **Desinstale** qualquer versao anterior do app.
-4. Instale o app-debug.apk (permitir fontes desconhecidas).
-5. Abra o app, confirme o selo `v1.1 - build 2` e toque em **Ativar overlay**.
-6. Conceda microfone + sobreposicao.
-
-## Como usar
-
-- Toque e segure o personagem (~0,5 s) para abrir o editor.
-- Arraste o corpo para mover; bolinhas dos cantos redimensionam.
-- **Pronto** fecha o editor; **Resetar** volta ao padrao.
-- A notificacao tem acoes **Editar** / **Parar**.
-- Gire o celular: posicao/tamanho relativos sao mantidos (salvos em % da tela).
-- Toques fora do sprite passam para o app de baixo.
+1. Actions -> run mais recente -> artifact `vtuber-apk-build-<numero>`.
+2. Desinstale a versao anterior (assinaturas de build CI diferem).
+3. Instale, confirme o selo `v2.0 - build 4`, conceda microfone + sobreposicao.
 
 ## Stack
 
