@@ -22,11 +22,11 @@ data class SpriteSettings(
     var xRatio: Float = 0.5f,
     var yRatio: Float = 0.82f,
     var wRatio: Float = 0.55f,
-    var idleAlpha: Float = 0.55f,      // transparencia quando calado
-    var idleDim: Float = 0.35f,        // escurecimento quando calado
-    var idleOffsetDp: Float = 16f,     // quantos dp desce quando calado
+    var idleAlpha: Float = 0.55f,
+    var idleDim: Float = 0.35f,
+    var idleOffsetDp: Float = 16f,
     var glowWhenTalking: Boolean = true,
-    var glowAlpha: Float = 0.9f,       // brilho branco ao falar
+    var glowAlpha: Float = 0.9f,
     var idleIntervalMs: Long = 400L,
     var talkingIntervalMs: Long = 140L,
     var threshold: Double = 400.0,

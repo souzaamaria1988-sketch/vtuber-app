@@ -157,7 +157,7 @@ class OverlayService : Service() {
         computeInitialGeometry()
         buildUI()
         showOverlay()
-        applyTalkLevel(0f) // comeca no estado idle (afundado/transparente)
+        applyTalkLevel(0f)
         handler.postDelayed(frameRunnable, settings.idleIntervalMs)
         startVoice()
 
@@ -179,7 +179,6 @@ class OverlayService : Service() {
         idleFrames.clear()
         talkingFrames.clear()
         framesList.forEach { f ->
-            // cropTop so se aplica aos assets embutidos (sprites importados ficam integrais)
             val crop = if (f.fileName.isBlank()) config.cropTop else 0f
             val bmp = SpriteStore.loadBitmap(this, f, crop) ?: return@forEach
             if (f.category == "talking") talkingFrames.add(bmp) else idleFrames.add(bmp)
@@ -419,17 +418,13 @@ class OverlayService : Service() {
     private fun applyTalkLevel(level: Float) {
         talkLevel = level
         val dens = resources.displayMetrics.density
-        // calado: desce; falando: sobe
         spriteView.translationY = (1f - level) * settings.idleOffsetDp * dens
-        // calado: transparente; falando: nitido
         spriteView.alpha = settings.idleAlpha + (1f - settings.idleAlpha) * level
-        // calado: um pouquinho preto; falando: cor normal
         val bright = (1f - settings.idleDim) + settings.idleDim * level
         val v = (bright * 255).toInt().coerceIn(0, 255)
         spriteView.colorFilter = PorterDuffColorFilter(
             Color.rgb(v, v, v), PorterDuff.Mode.MULTIPLY
         )
-        // falando: brilho branco
         glowView.alpha = if (settings.glowWhenTalking) level * settings.glowAlpha else 0f
     }
 

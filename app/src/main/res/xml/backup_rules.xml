@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
     <exclude domain="file" path="sprites" />
+    <exclude domain="file" path="videos" />
     <exclude domain="sharedpref" path="." />
 </full-backup-content>
