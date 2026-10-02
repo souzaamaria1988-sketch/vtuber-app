@@ -2,11 +2,6 @@ package com.vtuber.app
 
 import android.content.Context
 
-/**
- * Armazena posicao e tamanho como proporcao da tela (0.0 a 1.0).
- * Assim, quando o usuario gira o aparelho (portrait <-> landscape),
- * o sprite se reposiciona e redimensiona proporcionalmente.
- */
 class Prefs(context: Context) {
     private val sp = context.getSharedPreferences("vtuber_prefs", Context.MODE_PRIVATE)
 

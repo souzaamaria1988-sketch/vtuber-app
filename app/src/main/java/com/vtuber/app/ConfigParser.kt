@@ -4,14 +4,12 @@ import android.content.Context
 
 data class VtuberConfig(
     val scale: Float = 1f,
-    val cropTop: Float = 0.5f,
+    val cropTop: Float = 0.55f,
     val idleInterval: Long = 400L,
-    val volumeThreshold: Double = 1500.0,
-    val talkFrames: Int = 3,
-    val silenceFrames: Int = 8,
+    val volumeThreshold: Double = 400.0,
+    val talkFrames: Int = 2,
+    val silenceFrames: Int = 6,
     val anchor: String = "bottom-center",
-    val positionX: Float = 0.5f,
-    val positionY: Float = 1.0f,
     val idle1Path: String = "images/idle1.png",
     val idle2Path: String = "images/idle2.png",
     val talkingPath: String = "images/talking.png",
@@ -19,52 +17,103 @@ data class VtuberConfig(
 
 object ConfigParser {
 
-    private val CONFIG_TAG = Regex(
-        "<vtuber-config\\b([^>]*?)/?>",
-        RegexOption.IGNORE_CASE
-    )
-    private val IMAGE_TAG = Regex(
-        "<image\\b([^>]*?)/?>",
-        RegexOption.IGNORE_CASE
-    )
-    private val ATTR = Regex(
-        "([A-Za-z_][\\w-]*)\\s*=\\s*\"([^\"]*)\""
-    )
-
     fun load(context: Context): VtuberConfig {
-        val html = context.assets.open("config.html")
-            .bufferedReader().use { it.readText() }
+        val html = try {
+            context.assets.open("config.html").bufferedReader().use { it.readText() }
+        } catch (e: Exception) {
+            return VtuberConfig()
+        }
 
-        val cfgAttrs: Map<String, String> = CONFIG_TAG.find(html)
-            ?.groupValues?.get(1)
-            ?.let { parseAttrs(it) }
-            ?: emptyMap()
+        val cfgBlock = findTagBlock(html, "vtuber-config")
+        val cfgAttrs: Map<String, String> = if (cfgBlock != null) parseAttrs(cfgBlock) else emptyMap()
 
-        val imageAttrs: List<Map<String, String>> = IMAGE_TAG.findAll(html)
-            .map { parseAttrs(it.groupValues[1]) }
-            .toList()
+        val images = findAllTagBlocks(html, "image").map { parseAttrs(it) }
 
-        fun getImage(state: String, fallback: String): String {
-            val src = imageAttrs.firstOrNull { it["state"] == state }?.get("src")
+        fun img(state: String, fallback: String): String {
+            val src = images.firstOrNull { it["state"] == state }?.get("src")
             return if (!src.isNullOrBlank()) src else fallback
         }
 
         return VtuberConfig(
             scale = cfgAttrs["scale"]?.toFloatOrNull() ?: 1f,
-            cropTop = cfgAttrs["crop-top"]?.toFloatOrNull() ?: 0.5f,
+            cropTop = cfgAttrs["crop-top"]?.toFloatOrNull() ?: 0.55f,
             idleInterval = cfgAttrs["idle-interval"]?.toLongOrNull() ?: 400L,
-            volumeThreshold = cfgAttrs["volume-threshold"]?.toDoubleOrNull() ?: 1500.0,
-            talkFrames = cfgAttrs["talk-frames"]?.toIntOrNull() ?: 3,
-            silenceFrames = cfgAttrs["silence-frames"]?.toIntOrNull() ?: 8,
+            volumeThreshold = cfgAttrs["volume-threshold"]?.toDoubleOrNull() ?: 400.0,
+            talkFrames = cfgAttrs["talk-frames"]?.toIntOrNull() ?: 2,
+            silenceFrames = cfgAttrs["silence-frames"]?.toIntOrNull() ?: 6,
             anchor = cfgAttrs["anchor"]?.takeIf { it.isNotBlank() } ?: "bottom-center",
-            positionX = cfgAttrs["position-x"]?.toFloatOrNull() ?: 0.5f,
-            positionY = cfgAttrs["position-y"]?.toFloatOrNull() ?: 1.0f,
-            idle1Path = getImage("idle1", "images/idle1.png"),
-            idle2Path = getImage("idle2", "images/idle2.png"),
-            talkingPath = getImage("talking", "images/talking.png"),
+            idle1Path = img("idle1", "images/idle1.png"),
+            idle2Path = img("idle2", "images/idle2.png"),
+            talkingPath = img("talking", "images/talking.png"),
         )
     }
 
-    private fun parseAttrs(raw: String): Map<String, String> =
-        ATTR.findAll(raw).associate { it.groupValues[1] to it.groupValues[2] }
+    private fun findTagBlock(html: String, tag: String): String? {
+        var i = 0
+        while (i < html.length) {
+            val start = html.indexOf("<" + tag, i)
+            if (start < 0) return null
+            val after = start + tag.length + 1
+            if (after < html.length) {
+                val c = html[after]
+                if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '/' || c == '>') {
+                    val end = html.indexOf('>', after)
+                    if (end < 0) return null
+                    return html.substring(after, end)
+                }
+            }
+            i = start + 1
+        }
+        return null
+    }
+
+    private fun findAllTagBlocks(html: String, tag: String): List<String> {
+        val result = mutableListOf<String>()
+        var i = 0
+        while (i < html.length) {
+            val start = html.indexOf("<" + tag, i)
+            if (start < 0) break
+            val after = start + tag.length + 1
+            if (after < html.length) {
+                val c = html[after]
+                if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '/' || c == '>') {
+                    val end = html.indexOf('>', after)
+                    if (end < 0) break
+                    result.add(html.substring(after, end))
+                    i = end + 1
+                    continue
+                }
+            }
+            i = start + 1
+        }
+        return result
+    }
+
+    private fun parseAttrs(raw: String): Map<String, String> {
+        val result = mutableMapOf<String, String>()
+        var i = 0
+        val n = raw.length
+        while (i < n) {
+            while (i < n && raw[i].isWhitespace()) i++
+            if (i >= n) break
+            val nameStart = i
+            while (i < n && (raw[i].isLetterOrDigit() || raw[i] == '_' || raw[i] == '-')) i++
+            if (i == nameStart) { i++; continue }
+            val name = raw.substring(nameStart, i)
+            while (i < n && raw[i].isWhitespace()) i++
+            if (i >= n || raw[i] != '=') continue
+            i++
+            while (i < n && raw[i].isWhitespace()) i++
+            if (i >= n) break
+            val q = raw[i]
+            if (q != '"' && q != '\'') continue
+            i++
+            val valueStart = i
+            while (i < n && raw[i] != q) i++
+            val value = raw.substring(valueStart, i)
+            if (i < n) i++
+            result[name] = value
+        }
+        return result
+    }
 }
