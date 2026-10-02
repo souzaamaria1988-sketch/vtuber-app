@@ -20,9 +20,15 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # CORRECAO: sem o input "packages" (o pacote "tools" nao existe mais).
+      # A action so instala/aceita licencas do cmdline-tools.
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+          log-accepted-android-sdk-licenses: true
 
+      # Instalacao explicita dos componentes necessarios via sdkmanager
       - name: Ensure SDK components (android-35)
         run: |
           yes | sdkmanager --licenses > /dev/null || true
