@@ -209,7 +209,6 @@ class VoiceDetector(
             discardWarmup(rec, buffer)
             val deadline = System.currentTimeMillis() + 450
             while (System.currentTimeMillis() < deadline) {
-                buffer.clear()
                 val read = rec.read(buffer, 0, buffer.size)
                 if (read <= 0) continue
                 var sum = 0.0
