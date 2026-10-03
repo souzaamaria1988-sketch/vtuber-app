@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -743,10 +744,12 @@ fun VideoStudio() {
                 }
 
                 // polling do playhead
+                // CORRECAO: currentPosition e Int — converter ANTES do elvis
+                // (misturar Int com Long gerava Number & Comparable).
                 LaunchedEffect(playing, videoUri) {
                     while (playing) {
                         delay(100)
-                        positionMs = videoRef.value?.currentPosition ?: 0L
+                        positionMs = videoRef.value?.currentPosition?.toLong() ?: 0L
                     }
                 }
 
