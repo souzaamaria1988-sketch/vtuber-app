@@ -209,7 +209,9 @@ class VoiceDetector(
             discardWarmup(rec, buffer)
             val deadline = System.currentTimeMillis() + 450
             while (System.currentTimeMillis() < deadline) {
-                buffer.clear()
+                // CORRECAO: nao existe buffer.clear() — ShortArray nao tem esse
+                // metodo (era confusao com o ByteBuffer do VideoTrimmer).
+                // O read() ja sobrescreve o array desde o offset 0.
                 val read = rec.read(buffer, 0, buffer.size)
                 if (read <= 0) continue
                 var sum = 0.0

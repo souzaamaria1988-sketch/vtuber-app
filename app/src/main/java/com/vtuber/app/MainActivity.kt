@@ -29,7 +29,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -268,7 +267,7 @@ fun CharacterStudio(onStart: () -> Unit) {
         }
     }
 
-    // microfone ao vivo no preview (agora com nivel para a barra)
+    // microfone ao vivo no preview (com nivel para a barra)
     LaunchedEffect(previewOn, settings.threshold, settings.talkFrames, settings.silenceFrames) {
         if (!previewOn) { micLevel = 0f; return@LaunchedEffect }
         val main = Handler(Looper.getMainLooper())
@@ -747,7 +746,7 @@ fun VideoStudio() {
                 LaunchedEffect(playing, videoUri) {
                     while (playing) {
                         delay(100)
-                        positionMs = (videoRef.value?.currentPosition ?: 0).toLong()
+                        positionMs = videoRef.value?.currentPosition ?: 0L
                     }
                 }
 
