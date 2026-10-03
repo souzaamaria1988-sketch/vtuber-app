@@ -15,26 +15,20 @@ import kotlin.math.max
 import kotlin.math.sqrt
 
 /**
- * Detector de voz v3 — "fail-open": a prioridade e DETECTAR.
+ * Detector de voz v4 — LATENCIA BAIXA.
  *
- * CORRECAO v2.1: a versao anterior checava activeRecordingConfigurations
- * antes de abrir o microfone — mas o assistente "Ok Google" deixa uma
- * gravacao PERMANENTE em muitos aparelhos, e o detector achava que o
- * microfone estava sempre ocupado e nunca abria (por isso "falava e nao
- * respondia"). Agora:
- *
- *  - Recua so durante CHAMADAS (AudioManager.mode != NORMAL — confiavel);
- *  - Descarta ~100 ms de warmup a cada abertura (alguns aparelhos so
- *    entregam zeros nesse periodo, e o codigo antigo interpretava como
- *    "silenciado" e desistia);
- *  - Limiar adaptativo: acompanha o ruido ambiente (EMA) e dispara tambem
- *    quando rms > 4x o ruido — funciona mesmo com o slider alto;
- *  - onLevel: informa o RMS medido (barra de nivel no Studio).
+ *  - Dispara na PRIMEIRA amostra alta (antes exigia 2 — era o atraso);
+ *  - Amostra 320 ms com pausas de 300 ms quando calado → reacao ~0,3–0,6 s;
+ *  - Pausas curtinhas (120 ms) quando ha atividade (rastreio fluido);
+ *  - Recua so durante CHAMADAS (AudioManager.mode);
+ *  - Descarta ~80 ms de warmup (alguns aparelhos so entregam zeros nele);
+ *  - Limiar adaptativo: dispara com rms > threshold OU rms > 4x ruido;
+ *  - onLevel: RMS medido (barra de nivel no Studio).
  */
 class VoiceDetector(
     private val appContext: Context,
     private val threshold: Double = 400.0,
-    private val talkFrames: Int = 2,
+    private val talkFrames: Int = 1,
     private val silenceFrames: Int = 2,
     private val onLevel: ((Double) -> Unit)? = null,
 ) {
@@ -86,8 +80,8 @@ class VoiceDetector(
             appContext.getSystemService(AudioManager::class.java)
         }.getOrNull()
 
-        val talkNeeded = talkFrames.coerceIn(1, 4)
-        val silenceNeeded = silenceFrames.coerceIn(1, 4)
+        val talkNeeded = 1 // v4: dispara JÁ na primeira amostra alta
+        val silenceNeeded = silenceFrames.coerceIn(1, 3)
         var talkCount = 0
         var silenceCount = 0
         var noiseFloor = 120.0
@@ -95,7 +89,6 @@ class VoiceDetector(
 
         while (currentCoroutineContext().isActive && !stopRequested) {
 
-            // pausado pelo usuario: microfone 100% livre
             if (paused) {
                 if (isTalking) { isTalking = false; onChange(false) }
                 onLevel?.invoke(0.0)
@@ -103,7 +96,7 @@ class VoiceDetector(
                 continue
             }
 
-            // unico bloqueio "duro": chamada em andamento (celular/VoIP)
+            // unico bloqueio "duro": chamada em andamento
             if (callActive(am)) {
                 if (isTalking) {
                     isTalking = false
@@ -117,7 +110,6 @@ class VoiceDetector(
 
             val rms = sampleRms()
             if (rms == null) {
-                // silenciado pelo sistema (outro app tem prioridade) — tenta de novo
                 silenced++
                 if (isTalking) {
                     isTalking = false
@@ -125,13 +117,12 @@ class VoiceDetector(
                     onChange(false)
                 }
                 onLevel?.invoke(0.0)
-                delay(if (silenced > 8) 2500L else 800L)
+                delay(if (silenced > 8) 2000L else 600L)
                 continue
             }
             silenced = 0
             onLevel?.invoke(rms)
 
-            // limiar adaptativo: aprende o ruido do ambiente enquanto calado
             if (!isTalking && rms < threshold) {
                 noiseFloor = max(60.0, noiseFloor * 0.85 + rms * 0.15)
             }
@@ -150,8 +141,11 @@ class VoiceDetector(
                 onChange(newState)
             }
 
-            // microfone solto entre amostras
-            delay(if (isTalking || loud) 200L else 700L)
+            delay(when {
+                isTalking || loud -> 120L
+                rms > threshold * 0.55 -> 160L
+                else -> 300L
+            })
         }
     }
 
@@ -182,9 +176,8 @@ class VoiceDetector(
         return rec
     }
 
-    /** Alguns aparelhos so entregam zeros nos primeiros ~100 ms: descarta. */
     private fun discardWarmup(rec: AudioRecord, buffer: ShortArray) {
-        val deadline = System.currentTimeMillis() + 100
+        val deadline = System.currentTimeMillis() + 80
         while (System.currentTimeMillis() < deadline) {
             rec.read(buffer, 0, buffer.size)
         }
@@ -196,7 +189,7 @@ class VoiceDetector(
         return mode != AudioManager.MODE_NORMAL
     }
 
-    /** Amostra ~450 ms (ja sem warmup) e devolve o RMS; null se silenciado. */
+    /** Amostra ~320 ms (ja sem warmup) e devolve o RMS; null se silenciado. */
     @SuppressLint("MissingPermission")
     private fun sampleRms(): Double? {
         val rec = openRecorder() ?: return null
@@ -207,10 +200,8 @@ class VoiceDetector(
         try {
             rec.startRecording()
             discardWarmup(rec, buffer)
-            val deadline = System.currentTimeMillis() + 450
+            val deadline = System.currentTimeMillis() + 320
             while (System.currentTimeMillis() < deadline) {
-                // CORRECAO: nao existe buffer.clear() — ShortArray nao tem esse
-                // metodo. O read() ja sobrescreve o array desde o offset 0.
                 val read = rec.read(buffer, 0, buffer.size)
                 if (read <= 0) continue
                 var sum = 0.0

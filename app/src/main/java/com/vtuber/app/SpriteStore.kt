@@ -14,14 +14,20 @@ data class FrameItem(
     val id: String,
     val category: String,      // "idle" | "talking"
     val fileName: String,      // vazio = asset embutido (padrao)
-    val label: String,         // nome original do arquivo
-    val number: Int = 999,     // numero parsed do nome (ordem)
+    val label: String,
+    val number: Int = 999,
+)
+
+data class CharacterData(
+    val id: String,
+    val name: String,
+    val xRatio: Float,
+    val yRatio: Float,
+    val wRatio: Float,
+    val frames: List<FrameItem>,
 )
 
 data class SpriteSettings(
-    var xRatio: Float = 0.5f,
-    var yRatio: Float = 0.82f,
-    var wRatio: Float = 0.55f,
     var idleAlpha: Float = 0.55f,
     var idleDim: Float = 0.35f,
     var idleOffsetDp: Float = 16f,
@@ -30,8 +36,8 @@ data class SpriteSettings(
     var idleIntervalMs: Long = 400L,
     var talkingIntervalMs: Long = 140L,
     var threshold: Double = 400.0,
-    var talkFrames: Int = 2,
-    var silenceFrames: Int = 3,
+    var talkFrames: Int = 1,
+    var silenceFrames: Int = 2,
 )
 
 object SpriteStore {
@@ -46,32 +52,59 @@ object SpriteStore {
         return runCatching { JSONObject(raw) }.getOrNull()
     }
 
-    fun loadFrames(context: Context): List<FrameItem> {
+    private fun frameFromJson(o: JSONObject) = FrameItem(
+        id = o.getString("id"),
+        category = o.optString("category", "idle"),
+        fileName = o.optString("fileName", ""),
+        label = o.optString("label", "frame"),
+        number = o.optInt("number", 999),
+    )
+
+    /** Carrega os personagens (schema v2). Migra automaticamente o schema v1. */
+    fun loadCharacters(context: Context): List<CharacterData> {
         val root = rootJson(context) ?: return emptyList()
-        val arr = root.optJSONArray("frames") ?: return emptyList()
-        val out = mutableListOf<FrameItem>()
-        for (i in 0 until arr.length()) {
-            val o = arr.getJSONObject(i)
-            out.add(
-                FrameItem(
-                    id = o.getString("id"),
-                    category = o.optString("category", "idle"),
-                    fileName = o.optString("fileName", ""),
-                    label = o.optString("label", "frame"),
-                    number = o.optInt("number", 999),
+
+        val arr = root.optJSONArray("characters")
+        if (arr != null) {
+            val out = mutableListOf<CharacterData>()
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val framesArr = o.optJSONArray("frames") ?: JSONArray()
+                val frames = (0 until framesArr.length()).map { frameFromJson(framesArr.getJSONObject(it)) }
+                out.add(
+                    CharacterData(
+                        id = o.getString("id"),
+                        name = o.optString("name", "Personagem ${i + 1}"),
+                        xRatio = o.optDouble("xRatio", 0.5).toFloat(),
+                        yRatio = o.optDouble("yRatio", 0.82).toFloat(),
+                        wRatio = o.optDouble("wRatio", 0.4).toFloat(),
+                        frames = frames,
+                    )
+                )
+            }
+            if (out.isNotEmpty()) return out
+        }
+
+        // migracao: v1 tinha uma unica lista "frames" solta
+        val legacy = root.optJSONArray("frames")
+        if (legacy != null && legacy.length() > 0) {
+            val frames = (0 until legacy.length()).map { frameFromJson(legacy.getJSONObject(it)) }
+            return listOf(
+                CharacterData(
+                    id = UUID.randomUUID().toString(),
+                    name = "Personagem 1",
+                    xRatio = 0.5f, yRatio = 0.82f, wRatio = 0.55f,
+                    frames = frames,
                 )
             )
         }
-        return out
+        return emptyList()
     }
 
     fun loadSettings(context: Context): SpriteSettings {
         val s = SpriteSettings()
         val root = rootJson(context) ?: return s
         val o = root.optJSONObject("settings") ?: return s
-        s.xRatio = o.optDouble("xRatio", 0.5).toFloat()
-        s.yRatio = o.optDouble("yRatio", 0.82).toFloat()
-        s.wRatio = o.optDouble("wRatio", 0.55).toFloat()
         s.idleAlpha = o.optDouble("idleAlpha", 0.55).toFloat()
         s.idleDim = o.optDouble("idleDim", 0.35).toFloat()
         s.idleOffsetDp = o.optDouble("idleOffsetDp", 16.0).toFloat()
@@ -80,27 +113,36 @@ object SpriteStore {
         s.idleIntervalMs = o.optLong("idleIntervalMs", 400L)
         s.talkingIntervalMs = o.optLong("talkingIntervalMs", 140L)
         s.threshold = o.optDouble("threshold", 400.0)
-        s.talkFrames = o.optInt("talkFrames", 2)
-        s.silenceFrames = o.optInt("silenceFrames", 3)
+        s.talkFrames = o.optInt("talkFrames", 1)
+        s.silenceFrames = o.optInt("silenceFrames", 2)
         return s
     }
 
-    fun save(context: Context, frames: List<FrameItem>, settings: SpriteSettings) {
-        val arr = JSONArray()
-        frames.forEach { f ->
-            arr.put(
+    fun saveAll(context: Context, characters: List<CharacterData>, settings: SpriteSettings) {
+        val charsArr = JSONArray()
+        characters.forEach { c ->
+            val fArr = JSONArray()
+            c.frames.forEach { f ->
+                fArr.put(
+                    JSONObject()
+                        .put("id", f.id)
+                        .put("category", f.category)
+                        .put("fileName", f.fileName)
+                        .put("label", f.label)
+                        .put("number", f.number)
+                )
+            }
+            charsArr.put(
                 JSONObject()
-                    .put("id", f.id)
-                    .put("category", f.category)
-                    .put("fileName", f.fileName)
-                    .put("label", f.label)
-                    .put("number", f.number)
+                    .put("id", c.id)
+                    .put("name", c.name)
+                    .put("xRatio", c.xRatio.toDouble())
+                    .put("yRatio", c.yRatio.toDouble())
+                    .put("wRatio", c.wRatio.toDouble())
+                    .put("frames", fArr)
             )
         }
         val o = JSONObject()
-            .put("xRatio", settings.xRatio.toDouble())
-            .put("yRatio", settings.yRatio.toDouble())
-            .put("wRatio", settings.wRatio.toDouble())
             .put("idleAlpha", settings.idleAlpha.toDouble())
             .put("idleDim", settings.idleDim.toDouble())
             .put("idleOffsetDp", settings.idleOffsetDp.toDouble())
@@ -111,14 +153,24 @@ object SpriteStore {
             .put("threshold", settings.threshold)
             .put("talkFrames", settings.talkFrames)
             .put("silenceFrames", settings.silenceFrames)
-        Prefs(context).configJson = JSONObject().put("frames", arr).put("settings", o).toString()
+        Prefs(context).configJson = JSONObject()
+            .put("version", 2)
+            .put("characters", charsArr)
+            .put("settings", o)
+            .toString()
     }
 
+    fun newCharacter(name: String): CharacterData = CharacterData(
+        id = UUID.randomUUID().toString(),
+        name = name,
+        xRatio = 0.5f,
+        yRatio = 0.86f,
+        wRatio = 0.32f,
+        frames = emptyList(),
+    )
+
     // ---------- importacao ----------
-    /**
-     * Importa imagens da galeria. Nome com "talk" => lista Falando;
-     * resto => lista Idle. Numero no fim do nome = ordem na animacao.
-     */
+    /** Nome com "talk" => Falando; resto => Idle. Numero no fim = ordem. */
     fun importFrames(context: Context, uris: List<Uri>): List<FrameItem> {
         val added = mutableListOf<FrameItem>()
         uris.forEach { uri ->
@@ -190,7 +242,6 @@ object SpriteStore {
         )
     }
 
-    /** Carrega o bitmap de um frame (importado ou asset padrao). */
     fun loadBitmap(context: Context, frame: FrameItem, cropTop: Float = 0f): Bitmap? {
         return if (frame.fileName.isBlank()) {
             val raw = runCatching {
@@ -205,10 +256,17 @@ object SpriteStore {
         }
     }
 
-    /** Frames padrao (assets) quando nada foi importado ainda. */
-    fun fallbackFrames(): List<FrameItem> = listOf(
-        FrameItem("asset-idle-1", "idle", "", "idle1.png", 1),
-        FrameItem("asset-idle-2", "idle", "", "idle2.png", 2),
-        FrameItem("asset-talk-1", "talking", "", "talking.png", 1),
+    /** 1 personagem padrao (assets) quando nada foi importado. */
+    fun fallbackCharacters(): List<CharacterData> = listOf(
+        CharacterData(
+            id = "asset-char-1",
+            name = "Personagem 1",
+            xRatio = 0.5f, yRatio = 0.82f, wRatio = 0.55f,
+            frames = listOf(
+                FrameItem("asset-idle-1", "idle", "", "idle1.png", 1),
+                FrameItem("asset-idle-2", "idle", "", "idle2.png", 2),
+                FrameItem("asset-talk-1", "talking", "", "talking.png", 1),
+            )
+        )
     )
 }

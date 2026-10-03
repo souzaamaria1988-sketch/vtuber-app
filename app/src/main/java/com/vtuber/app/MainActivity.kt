@@ -15,7 +15,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -39,6 +45,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -69,6 +76,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -89,7 +97,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.math.PI
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 class MainActivity : ComponentActivity() {
 
@@ -210,14 +220,15 @@ fun StudioScreen(versionText: String, onStart: () -> Unit) {
 }
 
 // =====================================================================
-// ABA PERSONAGEM
+// ABA PERSONAGEM — MULTI-PERSONAGEM
 // =====================================================================
 @Composable
 fun CharacterStudio(onStart: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var frames by remember { mutableStateOf(SpriteStore.loadFrames(ctx)) }
+    var characters by remember { mutableStateOf(SpriteStore.loadCharacters(ctx)) }
+    var selectedIdx by remember { mutableStateOf(0) }
     var settings by remember { mutableStateOf(SpriteStore.loadSettings(ctx)) }
     var talking by remember { mutableStateOf(false) }
     var previewOn by remember { mutableStateOf(false) }
@@ -227,18 +238,37 @@ fun CharacterStudio(onStart: () -> Unit) {
     var calibMsg by remember { mutableStateOf("") }
     var editingFrame by remember { mutableStateOf<FrameItem?>(null) }
 
-    fun save() { SpriteStore.save(ctx, frames, settings) }
+    fun save() { SpriteStore.saveAll(ctx, characters, settings) }
 
-    val effective = remember(frames) {
-        if (frames.isEmpty()) SpriteStore.fallbackFrames() else frames
+    fun updateChar(idx: Int, transform: (CharacterData) -> CharacterData) {
+        val base = if (characters.isEmpty()) SpriteStore.fallbackCharacters() else characters
+        if (idx !in base.indices) return
+        val list = base.toMutableList()
+        list[idx] = transform(list[idx])
+        characters = list
     }
-    val idleList = effective.filter { it.category == "idle" }
-    val talkList = effective.filter { it.category == "talking" }
 
-    val bitmaps by produceState<Map<String, Bitmap>>(emptyMap(), effective) {
+    val effectiveChars = remember(characters) {
+        if (characters.isEmpty()) SpriteStore.fallbackCharacters() else characters
+    }
+    val sel = effectiveChars.getOrNull(selectedIdx)
+    val idleList = sel?.frames?.filter { it.category == "idle" } ?: emptyList()
+    val talkList = sel?.frames?.filter { it.category == "talking" } ?: emptyList()
+
+    // cache de bitmaps — so recarrega quando FRAMES mudam (nao na posicao)
+    val framesSignature = remember(characters) {
+        effectiveChars.joinToString("|") { c ->
+            c.id + ":" + c.frames.joinToString(",") { it.id }
+        }
+    }
+    val bitmaps by produceState<Map<String, Bitmap>>(emptyMap(), framesSignature) {
         value = withContext(Dispatchers.IO) {
             val m = mutableMapOf<String, Bitmap>()
-            effective.forEach { f -> SpriteStore.loadBitmap(ctx, f)?.let { b -> m[f.id] = b } }
+            effectiveChars.forEach { c ->
+                c.frames.forEach { f ->
+                    SpriteStore.loadBitmap(ctx, f)?.let { b -> m[f.id] = b }
+                }
+            }
             m
         }
     }
@@ -250,7 +280,7 @@ fun CharacterStudio(onStart: () -> Unit) {
         scope.launch {
             val added = withContext(Dispatchers.IO) { SpriteStore.importFrames(ctx, uris) }
             if (added.isNotEmpty()) {
-                frames = frames + added
+                updateChar(selectedIdx) { c -> c.copy(frames = c.frames + added) }
                 save()
             }
         }
@@ -260,7 +290,7 @@ fun CharacterStudio(onStart: () -> Unit) {
         ActivityResultContracts.RequestPermission()
     ) { granted -> if (!granted) previewOn = false }
 
-    // animacao de frames no preview
+    // animacao de frames (com dessincronia por personagem — mais organic)
     LaunchedEffect(previewOn, talking, settings.idleIntervalMs, settings.talkingIntervalMs) {
         while (previewOn) {
             delay(if (talking) settings.talkingIntervalMs else settings.idleIntervalMs)
@@ -268,7 +298,7 @@ fun CharacterStudio(onStart: () -> Unit) {
         }
     }
 
-    // microfone ao vivo no preview (com nivel para a barra)
+    // microfone ao vivo (com nivel para a barra)
     LaunchedEffect(previewOn, settings.threshold, settings.talkFrames, settings.silenceFrames) {
         if (!previewOn) { micLevel = 0f; return@LaunchedEffect }
         val main = Handler(Looper.getMainLooper())
@@ -279,20 +309,30 @@ fun CharacterStudio(onStart: () -> Unit) {
         det.run { t -> main.post { talking = t } }
     }
 
-    // visual estilo Discord (animado)
-    val talkAnim by animateFloatAsState(if (talking) 1f else 0f, tween(220))
+    // ===== ANIMACOES =====
+    // spring com bounce na transicao calado <-> falando
+    val talkAnim by animateFloatAsState(
+        targetValue = if (talking) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = 260f
+        ),
+        label = "talk"
+    )
+    // flutuacao continua (bob) com fase diferente por personagem
+    val bobPhase by rememberInfiniteTransition(label = "bob").animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(2600, easing = LinearEasing)),
+        label = "bob"
+    )
+
     val alpha = settings.idleAlpha + (1f - settings.idleAlpha) * talkAnim
     val bright = (1f - settings.idleDim) + settings.idleDim * talkAnim
     val density = LocalDensity.current
     val sinkPx = with(density) { settings.idleOffsetDp.dp.toPx() } * (1f - talkAnim)
+    val bobAmpPx = with(density) { 5.dp.toPx() }
     val glowA = if (settings.glowWhenTalking) settings.glowAlpha * talkAnim else 0f
-
-    val currentList = if (talking) talkList.ifEmpty { idleList } else idleList
-    val currentFrame = currentList.getOrNull(frameIdx % currentList.size.coerceAtLeast(1))
-    val currentBmp = currentFrame?.let { bitmaps[it.id] }
-    val baseBmp = bitmaps[(idleList.ifEmpty { talkList }).firstOrNull()?.id]
-    val aspect = if (baseBmp != null && baseBmp.height > 0)
-        baseBmp.width.toFloat() / baseBmp.height else 1f
 
     Column(
         Modifier
@@ -301,7 +341,7 @@ fun CharacterStudio(onStart: () -> Unit) {
             .padding(18.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // ==================== PREVIEW AO VIVO ====================
+        // ==================== PREVIEW AO VIVO (TODOS os personagens) ====================
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
@@ -310,65 +350,99 @@ fun CharacterStudio(onStart: () -> Unit) {
                 .background(Color(0xFF100E14))
         ) {
             val cw = constraints.maxWidth.toFloat()
-            val ch = constraints.maxHeight.toFloat()
+            val chh = constraints.maxHeight.toFloat()
 
             Box(
                 Modifier
                     .matchParentSize()
-                    .pointerInput(cw, ch) {
+                    // key em selectedIdx tb: drag sempre move o personagem selecionado
+                    .pointerInput(selectedIdx, cw, chh) {
                         detectDragGestures(
                             onDrag = { change, drag ->
                                 change.consume()
-                                settings = settings.copy(
-                                    xRatio = (settings.xRatio + drag.x / cw).coerceIn(0f, 1f),
-                                    yRatio = (settings.yRatio + drag.y / ch).coerceIn(0f, 1f),
-                                )
+                                // leitura SEMPRE atual (delegates):
+                                val base =
+                                    if (characters.isEmpty()) SpriteStore.fallbackCharacters() else characters
+                                val idx = selectedIdx
+                                if (idx in base.indices) {
+                                    val list = base.toMutableList()
+                                    val c = list[idx]
+                                    list[idx] = c.copy(
+                                        xRatio = (c.xRatio + drag.x / cw).coerceIn(0f, 1f),
+                                        yRatio = (c.yRatio + drag.y / chh).coerceIn(0f, 1f),
+                                    )
+                                    characters = list
+                                }
                             },
                             onDragEnd = { save() }
                         )
                     }
             ) {
-                val spriteW = cw * settings.wRatio
-                val spriteH = spriteW / aspect
                 val glowPad = with(density) { 8.dp.toPx() }
-                val ox = settings.xRatio * cw - spriteW / 2f
-                val oy = settings.yRatio * ch - spriteH / 2f + sinkPx
+                val selPad = with(density) { 4.dp.toPx() }
 
-                if (settings.glowWhenTalking) {
-                    Box(
-                        Modifier
-                            .offset { IntOffset((ox - glowPad).roundToInt(), (oy - glowPad).roundToInt()) }
-                            .size(
-                                with(density) { (spriteW + 2 * glowPad).toDp() },
-                                with(density) { (spriteH + 2 * glowPad).toDp() }
-                            )
-                            .border(3.dp, Color.White.copy(alpha = glowA), RoundedCornerShape(18.dp))
-                            .background(Color.White.copy(alpha = glowA * 0.12f), RoundedCornerShape(18.dp))
-                    )
-                }
-                if (currentBmp != null) {
-                    Image(
-                        bitmap = currentBmp.asImageBitmap(),
-                        contentDescription = null,
-                        modifier = Modifier
-                            .offset { IntOffset(ox.roundToInt(), oy.roundToInt()) }
-                            .size(
-                                with(density) { spriteW.toDp() },
-                                with(density) { spriteH.toDp() }
-                            ),
-                        contentScale = ContentScale.Fit,
-                        alpha = alpha,
-                        colorFilter = if (bright < 0.99f) {
-                            ColorFilter.tint(Color(bright, bright, bright), BlendMode.Multiply)
-                        } else null
-                    )
-                } else {
-                    Text(
-                        "Importe imagens (ou use as 3 padrão)\npara começar",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.align(Alignment.Center)
-                    )
+                effectiveChars.forEachIndexed { idx, chData ->
+                    val cIdle = chData.frames.filter { it.category == "idle" }
+                    val cTalk = chData.frames.filter { it.category == "talking" }
+                    val baseBmp = bitmaps[(cIdle.ifEmpty { cTalk }).firstOrNull()?.id]
+                    val aspect = if (baseBmp != null && baseBmp.height > 0)
+                        baseBmp.width.toFloat() / baseBmp.height else 1f
+                    val list = if (talking) cTalk.ifEmpty { cIdle } else cIdle
+                    val currentBmp =
+                        list.getOrNull((frameIdx + idx) % list.size.coerceAtLeast(1))
+                            ?.let { bitmaps[it.id] } ?: baseBmp
+
+                    val spriteW = cw * chData.wRatio
+                    val spriteH = spriteW / aspect
+                    // bob: fase diferente por personagem; para quando fala
+                    val bob = sin((bobPhase + idx * 0.13f) * 2.0 * PI).toFloat() *
+                            bobAmpPx * (1f - talkAnim)
+                    val ox = chData.xRatio * cw - spriteW / 2f
+                    val oy = chData.yRatio * chh - spriteH / 2f + sinkPx + bob
+                    val isSel = idx == selectedIdx
+
+                    if (settings.glowWhenTalking) {
+                        Box(
+                            Modifier
+                                .offset { IntOffset((ox - glowPad).roundToInt(), (oy - glowPad).roundToInt()) }
+                                .size(
+                                    with(density) { (spriteW + 2 * glowPad).toDp() },
+                                    with(density) { (spriteH + 2 * glowPad).toDp() }
+                                )
+                                .border(3.dp, Color.White.copy(alpha = glowA), RoundedCornerShape(18.dp))
+                                .background(Color.White.copy(alpha = glowA * 0.12f), RoundedCornerShape(18.dp))
+                        )
+                    }
+                    if (isSel) {
+                        Box(
+                            Modifier
+                                .offset { IntOffset((ox - selPad).roundToInt(), (oy - selPad).roundToInt()) }
+                                .size(
+                                    with(density) { (spriteW + 2 * selPad).toDp() },
+                                    with(density) { (spriteH + 2 * selPad).toDp() }
+                                )
+                                .border(2.dp, Color(0x99D0BCFF), RoundedCornerShape(14.dp))
+                        )
+                    }
+                    if (currentBmp != null) {
+                        Image(
+                            bitmap = currentBmp.asImageBitmap(),
+                            contentDescription = null,
+                            modifier = Modifier
+                                .offset { IntOffset(ox.roundToInt(), oy.roundToInt()) }
+                                .size(
+                                    with(density) { spriteW.toDp() },
+                                    with(density) { spriteH.toDp() }
+                                )
+                                // pop de escala ao falar (com spring = bounce)
+                                .scale(1f + 0.05f * talkAnim),
+                            contentScale = ContentScale.Fit,
+                            alpha = alpha,
+                            colorFilter = if (bright < 0.99f) {
+                                ColorFilter.tint(Color(bright, bright, bright), BlendMode.Multiply)
+                            } else null
+                        )
+                    }
                 }
                 if (previewOn) {
                     Box(
@@ -383,7 +457,7 @@ fun CharacterStudio(onStart: () -> Unit) {
             }
         }
         Spacer(Modifier.height(6.dp))
-        Text("Arraste o personagem no preview para posicionar.",
+        Text("Arraste no preview para mover o personagem selecionado (moldura roxa).",
             fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         // ==================== BARRA DE NIVEL DO MICROFONE ====================
@@ -416,11 +490,62 @@ fun CharacterStudio(onStart: () -> Unit) {
             }
         }
 
-        // ==================== FRAMES ====================
-        SectionTitle("Frames — idle: ${idleList.size} · talking: ${talkList.size}")
+        // ==================== SELETOR DE PERSONAGENS ====================
+        SectionTitle("Personagens (${effectiveChars.size})")
+        LazyRow {
+            itemsIndexed(effectiveChars) { idx, chData ->
+                val isSel = idx == selectedIdx
+                Text(
+                    "${idx + 1} · ${chData.frames.size} frames",
+                    fontSize = 12.sp,
+                    color = if (isSel) Color(0xFFEADDFF) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .padding(horizontal = 4.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(if (isSel) Color(0xFF4F378B) else Color(0xFF26232B))
+                        .clickable { selectedIdx = idx }
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                )
+            }
+            item {
+                Text(
+                    "＋ Novo",
+                    fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFFEADDFF),
+                    modifier = Modifier
+                        .padding(horizontal = 4.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(Color(0xFF6750A4))
+                        .clickable {
+                            val name = "Personagem ${effectiveChars.size + 1}"
+                            val base =
+                                if (characters.isEmpty()) SpriteStore.fallbackCharacters() else characters
+                            characters = base + SpriteStore.newCharacter(name)
+                            selectedIdx = characters.size - 1
+                            save()
+                        }
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                )
+            }
+        }
+        if (effectiveChars.size > 1) {
+            TextButton(onClick = {
+                val base =
+                    if (characters.isEmpty()) SpriteStore.fallbackCharacters() else characters
+                val list = base.toMutableList()
+                val idx = selectedIdx.coerceIn(0, list.size - 1)
+                list.removeAt(idx)
+                characters = list
+                selectedIdx = (idx - 1).coerceAtLeast(0).coerceAtMost(list.size - 1)
+                save()
+            }) { Text("🗑 Remover personagem ${selectedIdx + 1}", color = Color(0xFFF2B8B5)) }
+        }
+
+        // ==================== FRAMES DO PERSONAGEM SELECIONADO ====================
+        SectionTitle("Frames do personagem ${selectedIdx + 1} — idle: ${idleList.size} · talking: ${talkList.size}")
         Text(
             "Nome do arquivo com \"talk\" → lista Falando; número no fim = ordem " +
-                "(ex.: idle3.png, talking2.png). Toque numa thumb para reordenar/trocar/remover.",
+                "(ex.: idle3.png, talking2.png).",
             fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
@@ -442,23 +567,23 @@ fun CharacterStudio(onStart: () -> Unit) {
             item { ImportTile { importLauncher.launch("image/*") } }
         }
 
-        // ==================== POSICAO ====================
-        SectionTitle("Posição e tamanho")
-        SettingSlider("Tamanho", settings.wRatio, 0.15f..0.95f,
-            "${(settings.wRatio * 100).toInt()}%",
-            { settings = settings.copy(wRatio = it) }, { save() })
+        // ==================== POSICAO (do personagem selecionado) ====================
+        SectionTitle("Posição e tamanho (personagem ${selectedIdx + 1})")
+        SettingSlider("Tamanho", sel?.wRatio ?: 0.4f, 0.1f..0.9f,
+            "${(((sel?.wRatio ?: 0.4f)) * 100).toInt()}%",
+            { v -> updateChar(selectedIdx) { it.copy(wRatio = v) } }, { save() })
         Row(Modifier.fillMaxWidth()) {
             Button(onClick = {
-                settings = settings.copy(xRatio = 0.5f, yRatio = 0.5f); save()
+                updateChar(selectedIdx) { it.copy(xRatio = 0.5f, yRatio = 0.5f) }; save()
             }, modifier = Modifier.weight(1f)) { Text("Centralizar") }
             Spacer(Modifier.width(8.dp))
             Button(onClick = {
-                settings = settings.copy(xRatio = 0.5f, yRatio = 0.85f); save()
+                updateChar(selectedIdx) { it.copy(xRatio = 0.5f, yRatio = 0.85f) }; save()
             }, modifier = Modifier.weight(1f)) { Text("Fundo") }
         }
 
-        // ==================== ESTILO DISCORD ====================
-        SectionTitle("Estilo Discord (silêncio ↔ fala)")
+        // ==================== ESTILO DISCORD (global) ====================
+        SectionTitle("Estilo Discord — silêncio ↔ fala (todos)")
         SettingSlider("Transparência no silêncio", settings.idleAlpha, 0.1f..1f,
             "${(settings.idleAlpha * 100).toInt()}%",
             { settings = settings.copy(idleAlpha = it) }, { save() })
@@ -563,21 +688,35 @@ fun CharacterStudio(onStart: () -> Unit) {
             confirmButton = {
                 Column {
                     TextButton(onClick = {
-                        frames = moveFrame(frames, f.id, -1); save()
+                        updateChar(selectedIdx) { c ->
+                            c.copy(frames = moveFrame(c.frames, f.id, -1))
+                        }
+                        save()
                     }) { Text("◀ Mover para trás") }
                     TextButton(onClick = {
-                        frames = moveFrame(frames, f.id, +1); save()
+                        updateChar(selectedIdx) { c ->
+                            c.copy(frames = moveFrame(c.frames, f.id, +1))
+                        }
+                        save()
                     }) { Text("Mover para frente ▶") }
                     TextButton(onClick = {
-                        frames = frames.map {
-                            if (it.id == f.id)
-                                it.copy(category = if (it.category == "idle") "talking" else "idle")
-                            else it
+                        updateChar(selectedIdx) { c ->
+                            c.copy(
+                                frames = c.frames.map { fr ->
+                                    if (fr.id == f.id)
+                                        fr.copy(
+                                            category = if (fr.category == "idle") "talking" else "idle"
+                                        )
+                                    else fr
+                                }
+                            )
                         }
                         save(); editingFrame = null
                     }) { Text("Trocar para ${if (f.category == "idle") "Talking" else "Idle"}") }
                     TextButton(onClick = {
-                        frames = frames.filterNot { it.id == f.id }
+                        updateChar(selectedIdx) { c ->
+                            c.copy(frames = c.frames.filterNot { fr -> fr.id == f.id })
+                        }
                         SpriteStore.deleteFrame(ctx, f)
                         save(); editingFrame = null
                     }) { Text("Remover", color = Color(0xFFF2B8B5)) }
@@ -668,7 +807,6 @@ fun VideoStudio() {
                     .background(Color.Black)
             )
 
-            // ================== TIMELINE (A BARRINHA) ==================
             Spacer(Modifier.height(8.dp))
             BoxWithConstraints(
                 Modifier
@@ -693,7 +831,6 @@ fun VideoStudio() {
                 val playFrac = if (durationMs > 0)
                     (positionMs / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
 
-                // regiao selecionada (o corte)
                 Box(
                     Modifier
                         .align(Alignment.CenterStart)
@@ -702,14 +839,12 @@ fun VideoStudio() {
                         .fillMaxHeight()
                         .background(Color(0x3AD0BCFF))
                 )
-                // bordas do corte
                 Box(Modifier.align(Alignment.CenterStart)
                     .offset { IntOffset((inFrac * cw).roundToInt(), 0) }
                     .width(3.dp).fillMaxHeight().background(Color(0xFFD0BCFF)))
                 Box(Modifier.align(Alignment.CenterStart)
                     .offset { IntOffset((outFrac * cw).roundToInt(), 0) }
                     .width(3.dp).fillMaxHeight().background(Color(0xFFD0BCFF)))
-                // playhead
                 Box(Modifier.align(Alignment.CenterStart)
                     .offset { IntOffset((playFrac * cw).roundToInt(), 0) }
                     .width(2.dp).fillMaxHeight().background(Color.White))
@@ -721,7 +856,6 @@ fun VideoStudio() {
             )
 
             if (durationMs > 0) {
-                // ================== CONTROLES ==================
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     Button(onClick = {
                         playing = !playing
@@ -743,9 +877,6 @@ fun VideoStudio() {
                     }
                 }
 
-                // polling do playhead
-                // CORRECAO: currentPosition e Int — converter ANTES do elvis
-                // (misturar Int com Long gerava Number & Comparable).
                 LaunchedEffect(playing, videoUri) {
                     while (playing) {
                         delay(100)
@@ -761,7 +892,6 @@ fun VideoStudio() {
                     { outMs = it.toLong().coerceAtLeast(inMs + 300).coerceAtMost(durationMs) }, {})
             }
 
-            // ================== CORTAR ==================
             Spacer(Modifier.height(12.dp))
             if (trimming) {
                 Box(

@@ -1,24 +1,23 @@
 # VTuber Studio
 
-App Android (Kotlin) com overlay VTuber + editor de personagem + editor de video.
+App Android (Kotlin) com overlay VTuber + multi-personagem + editor de video.
 
-**Versao atual: v2.1 (versionCode 5)** — tela inicial mostra `v2.1 - build 5`.
+**Versao atual: v2.2 (versionCode 6)** — selo `v2.2 - build 6`.
 
-## v2.1
+## v2.2
 
-- Detector de voz consertado: nao trava mais por causa do assistente "Ok
-  Google" (que deixava uma gravacao ativa e bloqueava o detector pra sempre).
-- Barra de nivel de microfone ao vivo no preview (diagnostico).
-- Limiar adaptativo (dispara acima de 4x o ruido ambiente).
-- NOVO: aba Video — escolha um video da galeria, marque inicio/fim na
-  timeline e corte sem recodificar (copia os frames originais). Salva na
-  galeria (Filmes/VTuber, Android 10+) ou compartilha (Android 8+).
+- MULTI-PERSONAGEM: quantos quiser, cada um com posicao, tamanho e frames
+  proprios. Chips no Studio para alternar/criar/remover.
+- Animacoes: entrada pop escalonada, flutuacao com fase por personagem,
+  bounce ao falar, brilho branco.
+- Microfone ~3x mais rapido (dispara na primeira amostra alta).
+- Limitacao honesta: impossivel ouvir a voz dos outros numa chamada
+  (o Android da o microfone exclusivo ao app da chamada).
 
 ## Instalar
 
-1. Actions -> run mais recente -> artifact `vtuber-apk-build-<numero>`.
-2. Desinstale a versao anterior (assinaturas de build CI diferem).
-3. Instale, confirme o selo `v2.1 - build 5`, conceda microfone + sobreposicao.
+Actions -> artifact `vtuber-apk-build-<n>` -> desinstale o anterior ->
+instale -> confirme `v2.2 - build 6`.
 
 ## Stack
 
